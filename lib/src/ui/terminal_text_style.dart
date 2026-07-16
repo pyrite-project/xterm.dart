@@ -29,6 +29,7 @@ class TerminalStyle {
     this.height = _kDefaultHeight,
     this.fontFamily = _kDefaultFontFamily,
     this.fontFamilyFallback = _kDefaultFontFamilyFallback,
+    this.enableUnderline = true,
   });
 
   factory TerminalStyle.fromTextStyle(TextStyle textStyle) {
@@ -40,6 +41,8 @@ class TerminalStyle {
           _kDefaultFontFamily,
       fontFamilyFallback:
           textStyle.fontFamilyFallback ?? _kDefaultFontFamilyFallback,
+      enableUnderline: textStyle.decoration == null ||
+          textStyle.decoration != TextDecoration.none,
     );
   }
 
@@ -50,6 +53,8 @@ class TerminalStyle {
   final String fontFamily;
 
   final List<String> fontFamilyFallback;
+
+  final bool enableUnderline;
 
   TextStyle toTextStyle({
     Color? color,
@@ -67,7 +72,9 @@ class TerminalStyle {
       backgroundColor: backgroundColor,
       fontWeight: bold ? FontWeight.bold : FontWeight.normal,
       fontStyle: italic ? FontStyle.italic : FontStyle.normal,
-      decoration: underline ? TextDecoration.underline : TextDecoration.none,
+      decoration: underline && enableUnderline
+          ? TextDecoration.underline
+          : TextDecoration.none,
     );
   }
 
@@ -76,12 +83,14 @@ class TerminalStyle {
     double? height,
     String? fontFamily,
     List<String>? fontFamilyFallback,
+    bool? enableUnderline,
   }) {
     return TerminalStyle(
       fontSize: fontSize ?? this.fontSize,
       height: height ?? this.height,
       fontFamily: fontFamily ?? this.fontFamily,
       fontFamilyFallback: fontFamilyFallback ?? this.fontFamilyFallback,
+      enableUnderline: enableUnderline ?? this.enableUnderline,
     );
   }
 }

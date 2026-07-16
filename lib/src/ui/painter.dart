@@ -58,9 +58,7 @@ class TerminalPainter {
 
     final textStyle = _textStyle.toTextStyle();
     final builder = ParagraphBuilder(textStyle.getParagraphStyle());
-    builder.pushStyle(
-      textStyle.getTextStyle(textScaler: _textScaler),
-    );
+    builder.pushStyle(textStyle.getTextStyle(textScaler: _textScaler));
     builder.addText(test);
 
     final paragraph = builder.build();
@@ -124,26 +122,21 @@ class TerminalPainter {
 
   @pragma('vm:prefer-inline')
   void paintHighlight(Canvas canvas, Offset offset, int length, Color color) {
-    final endOffset =
-        offset.translate(length * _cellSize.width, _cellSize.height);
+    final endOffset = offset.translate(
+      length * _cellSize.width,
+      _cellSize.height,
+    );
 
     final paint = Paint()
       ..color = color
       ..strokeWidth = 1;
 
-    canvas.drawRect(
-      Rect.fromPoints(offset, endOffset),
-      paint,
-    );
+    canvas.drawRect(Rect.fromPoints(offset, endOffset), paint);
   }
 
   /// Paints [line] to [canvas] at [offset]. The x offset of [offset] is usually
   /// 0, and the y offset is the top of the line.
-  void paintLine(
-    Canvas canvas,
-    Offset offset,
-    BufferLine line,
-  ) {
+  void paintLine(Canvas canvas, Offset offset, BufferLine line) {
     final cellData = CellData.empty();
     final cellWidth = _cellSize.width;
 
@@ -174,37 +167,32 @@ class TerminalPainter {
     final charCode = cellData.content & CellContent.codepointMask;
     if (charCode == 0) return;
 
+    final cellFlags = cellData.flags;
+    var color = cellFlags & CellFlags.inverse == 0
+        ? resolveForegroundColor(cellData.foreground)
+        : resolveBackgroundColor(cellData.background);
+
+    if (cellFlags & CellFlags.faint != 0) {
+      color = color.withValues(alpha: 0.5);
+    }
+
+    if (_paintBoxDrawing(canvas, offset, charCode, color)) return;
+
     final cacheKey = cellData.getHash() ^ _textScaler.hashCode;
     var paragraph = _paragraphCache.getLayoutFromCache(cacheKey);
 
     if (paragraph == null) {
-      final cellFlags = cellData.flags;
-
-      var color = cellFlags & CellFlags.inverse == 0
-          ? resolveForegroundColor(cellData.foreground)
-          : resolveBackgroundColor(cellData.background);
-
-      if (cellData.flags & CellFlags.faint != 0) {
-        color = color.withOpacity(0.5);
-      }
+      final underline = cellFlags & CellFlags.underline != 0 &&
+          !_skipUnderlineDecoration(charCode);
 
       final style = _textStyle.toTextStyle(
         color: color,
         bold: cellFlags & CellFlags.bold != 0,
         italic: cellFlags & CellFlags.italic != 0,
-        underline: cellFlags & CellFlags.underline != 0,
+        underline: underline,
       );
 
-      // Flutter does not draw an underline below a space which is not between
-      // other regular characters. As only single characters are drawn, this
-      // will never produce an underline below a space in the terminal. As a
-      // workaround the regular space CodePoint 0x20 is replaced with
-      // the CodePoint 0xA0. This is a non breaking space and a underline can be
-      // drawn below it.
       var char = String.fromCharCode(charCode);
-      if (cellFlags & CellFlags.underline != 0 && charCode == 0x20) {
-        char = String.fromCharCode(0xA0);
-      }
 
       paragraph = _paragraphCache.performAndCacheLayout(
         char,
@@ -215,6 +203,149 @@ class TerminalPainter {
     }
 
     canvas.drawParagraph(paragraph, offset);
+  }
+
+  bool _paintBoxDrawing(
+    Canvas canvas,
+    Offset offset,
+    int charCode,
+    Color color,
+  ) {
+    if (_paintRoundedBoxDrawing(canvas, offset, charCode, color)) return true;
+
+    final connections = _boxDrawingConnections(charCode);
+    if (connections == 0) return false;
+
+    final strokeWidth = (_cellSize.height / 12).clamp(1.0, 1.5).toDouble();
+    final halfStroke = strokeWidth / 2;
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.butt
+      ..isAntiAlias = false;
+
+    final left = offset.dx - halfStroke;
+    final right = offset.dx + _cellSize.width + halfStroke;
+    final top = offset.dy - halfStroke;
+    final bottom = offset.dy + _cellSize.height + halfStroke;
+    final centerX = offset.dx + _cellSize.width / 2;
+    final centerY = offset.dy + _cellSize.height / 2;
+
+    if (connections & _boxLeft != 0) {
+      canvas.drawLine(Offset(left, centerY), Offset(centerX, centerY), paint);
+    }
+    if (connections & _boxRight != 0) {
+      canvas.drawLine(Offset(centerX, centerY), Offset(right, centerY), paint);
+    }
+    if (connections & _boxUp != 0) {
+      canvas.drawLine(Offset(centerX, top), Offset(centerX, centerY), paint);
+    }
+    if (connections & _boxDown != 0) {
+      canvas.drawLine(Offset(centerX, centerY), Offset(centerX, bottom), paint);
+    }
+
+    return true;
+  }
+
+  bool _paintRoundedBoxDrawing(
+    Canvas canvas,
+    Offset offset,
+    int charCode,
+    Color color,
+  ) {
+    if (charCode < 0x256d || charCode > 0x2570) return false;
+
+    final strokeWidth = (_cellSize.height / 12).clamp(1.0, 1.5).toDouble();
+    final halfStroke = strokeWidth / 2;
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.butt
+      ..style = PaintingStyle.stroke
+      ..isAntiAlias = true;
+
+    final left = offset.dx - halfStroke;
+    final right = offset.dx + _cellSize.width + halfStroke;
+    final top = offset.dy - halfStroke;
+    final bottom = offset.dy + _cellSize.height + halfStroke;
+    final centerX = offset.dx + _cellSize.width / 2;
+    final centerY = offset.dy + _cellSize.height / 2;
+    final path = Path();
+
+    switch (charCode) {
+      case 0x256d: // ╭
+        path.moveTo(right, centerY);
+        path.quadraticBezierTo(centerX, centerY, centerX, bottom);
+        break;
+      case 0x256e: // ╮
+        path.moveTo(left, centerY);
+        path.quadraticBezierTo(centerX, centerY, centerX, bottom);
+        break;
+      case 0x256f: // ╯
+        path.moveTo(left, centerY);
+        path.quadraticBezierTo(centerX, centerY, centerX, top);
+        break;
+      case 0x2570: // ╰
+        path.moveTo(right, centerY);
+        path.quadraticBezierTo(centerX, centerY, centerX, top);
+        break;
+    }
+
+    canvas.drawPath(path, paint);
+    return true;
+  }
+
+  static const _boxLeft = 1;
+  static const _boxRight = 1 << 1;
+  static const _boxUp = 1 << 2;
+  static const _boxDown = 1 << 3;
+
+  int _boxDrawingConnections(int charCode) {
+    switch (charCode) {
+      case 0x2500: // ─
+      case 0x2550: // ═
+        return _boxLeft | _boxRight;
+      case 0x2502: // │
+      case 0x2551: // ║
+        return _boxUp | _boxDown;
+      case 0x250c: // ┌
+      case 0x2554: // ╔
+        return _boxRight | _boxDown;
+      case 0x2510: // ┐
+      case 0x2557: // ╗
+        return _boxLeft | _boxDown;
+      case 0x2514: // └
+      case 0x255a: // ╚
+        return _boxRight | _boxUp;
+      case 0x2518: // ┘
+      case 0x255d: // ╝
+        return _boxLeft | _boxUp;
+      case 0x251c: // ├
+      case 0x2560: // ╠
+        return _boxUp | _boxDown | _boxRight;
+      case 0x2524: // ┤
+      case 0x2563: // ╣
+        return _boxUp | _boxDown | _boxLeft;
+      case 0x252c: // ┬
+      case 0x2566: // ╦
+        return _boxLeft | _boxRight | _boxDown;
+      case 0x2534: // ┴
+      case 0x2569: // ╩
+        return _boxLeft | _boxRight | _boxUp;
+      case 0x253c: // ┼
+      case 0x256c: // ╬
+        return _boxLeft | _boxRight | _boxUp | _boxDown;
+      default:
+        return 0;
+    }
+  }
+
+  bool _skipUnderlineDecoration(int charCode) {
+    if (charCode == 0x20 || charCode == 0x3000) return true;
+
+    // Box drawing glyphs already represent UI lines. Applying a text underline
+    // creates a second line below Claude-style terminal panels.
+    return charCode >= 0x2500 && charCode <= 0x257f;
   }
 
   /// Paints the background of a cell represented by [cellData] to [canvas] at
