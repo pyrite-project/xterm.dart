@@ -109,6 +109,56 @@ void main() {
     });
   });
 
+  group('Buffer.restoreCursor()', () {
+    test('clamps a DECSC cursor after the viewport shrinks', () {
+      final terminal = Terminal()
+        ..resize(80, 30)
+        ..write('\x1b[30;1H\x1b7')
+        ..resize(80, 25);
+
+      expect(() => terminal.write('\x1b8x'), returnsNormally);
+      expect(terminal.buffer.cursorY, terminal.viewHeight - 1);
+      expect(terminal.buffer.currentLine.toString(), 'x');
+    });
+
+    test('clamps a DEC mode 1048 cursor after the viewport shrinks', () {
+      final terminal = Terminal()
+        ..resize(80, 30)
+        ..write('\x1b[30;1H\x1b[?1048h')
+        ..resize(80, 25);
+
+      expect(() => terminal.write('\x1b[?1048lx'), returnsNormally);
+      expect(terminal.buffer.cursorY, terminal.viewHeight - 1);
+      expect(terminal.buffer.currentLine.toString(), 'x');
+    });
+
+    test('clamps a saved column after the viewport narrows', () {
+      final content = List.filled(80, 'x').join();
+      final terminal = Terminal()
+        ..resize(80, 5)
+        ..write('$content\x1b[1;80H\x1b7')
+        ..resize(40, 5);
+
+      expect(() => terminal.write('\x1b8\x1b[K'), returnsNormally);
+      expect(terminal.buffer.cursorY, 0);
+    });
+
+    test('preserves pending wrap when width does not change', () {
+      final terminal = Terminal()
+        ..resize(5, 5)
+        ..write('12345\x1b7')
+        ..resize(5, 4)
+        ..write('\r\x1b8x');
+
+      expect(terminal.buffer.cursorY, 1);
+      expect(terminal.buffer.lines[1].isWrapped, isTrue);
+      expect(
+        terminal.buffer.lines[1].getCodePoint(0),
+        'x'.codeUnitAt(0),
+      );
+    });
+  });
+
   group('Buffer.deleteLines()', () {
     test('works', () {
       final terminal = Terminal();

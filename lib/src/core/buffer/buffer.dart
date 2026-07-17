@@ -330,8 +330,9 @@ class Buffer {
 
   /// Restore cursor position, charmap and text attributes.
   void restoreCursor() {
-    _cursorX = _savedCursorX;
-    _cursorY = _savedCursorY;
+    // viewWidth is the terminal's valid pending-wrap position.
+    _cursorX = _savedCursorX.clamp(0, viewWidth);
+    setCursorY(_savedCursorY);
     terminal.cursor.foreground = _savedCursorStyle.foreground;
     terminal.cursor.background = _savedCursorStyle.background;
     terminal.cursor.attrs = _savedCursorStyle.attrs;
