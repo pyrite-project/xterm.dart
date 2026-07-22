@@ -110,7 +110,11 @@ class Buffer {
     codePoint = charset.translate(codePoint);
 
     final cellWidth = unicodeV11.wcwidth(codePoint);
-    if (_cursorX >= terminal.viewWidth) {
+    final wideCharNeedsWrap = terminal.autoWrapMode &&
+        terminal.viewWidth > 1 &&
+        cellWidth == 2 &&
+        _cursorX == terminal.viewWidth - 1;
+    if (_cursorX >= terminal.viewWidth || wideCharNeedsWrap) {
       index();
       setCursorX(0);
       if (terminal.autoWrapMode) {
@@ -125,7 +129,7 @@ class Buffer {
       _cursorX++;
     }
 
-    if (cellWidth == 2) {
+    if (cellWidth == 2 && terminal.viewWidth > 1) {
       writeChar(0);
     }
   }
@@ -436,45 +440,63 @@ class Buffer {
   }
 
   void resize(int oldWidth, int oldHeight, int newWidth, int newHeight) {
+    var nextCursorY = _cursorY;
+    var addedLineCount = 0;
+    final removedLines = <BufferLine>[];
+
     // 1. Adjust the height.
     if (newHeight > oldHeight) {
       // Grow larger
       for (var i = 0; i < newHeight - oldHeight; i++) {
         if (newHeight > lines.length) {
           lines.push(_newEmptyLine(newWidth));
+          addedLineCount++;
         } else {
-          _cursorY++;
+          nextCursorY++;
         }
       }
     } else {
       // Shrink smaller
       for (var i = 0; i < oldHeight - newHeight; i++) {
-        if (_cursorY > newHeight - 1) {
-          _cursorY--;
+        if (nextCursorY > newHeight - 1) {
+          nextCursorY--;
         } else {
-          lines.pop();
+          removedLines.add(lines.pop());
         }
       }
     }
 
     // Ensure cursor is within the screen.
-    _cursorX = _cursorX.clamp(0, newWidth - 1);
-    _cursorY = _cursorY.clamp(0, newHeight - 1);
+    final nextCursorX = _cursorX.clamp(0, newWidth - 1);
+    nextCursorY = nextCursorY.clamp(0, newHeight - 1);
 
-    // 2. Adjust the width.
-    if (newWidth != oldWidth) {
-      if (terminal.reflowEnabled && !isAltBuffer) {
-        final reflowResult = reflow(lines, oldWidth, newWidth);
+    try {
+      // 2. Adjust the width.
+      if (newWidth != oldWidth) {
+        if (terminal.reflowEnabled && !isAltBuffer) {
+          final reflowResult = reflow(lines, oldWidth, newWidth);
 
-        while (reflowResult.length < newHeight) {
-          reflowResult.add(_newEmptyLine(newWidth));
+          while (reflowResult.length < newHeight) {
+            reflowResult.add(_newEmptyLine(newWidth));
+          }
+
+          lines.replaceWith(reflowResult);
+        } else {
+          lines.forEach((item) => item.resize(newWidth));
         }
-
-        lines.replaceWith(reflowResult);
-      } else {
-        lines.forEach((item) => item.resize(newWidth));
       }
+    } catch (_) {
+      for (var i = 0; i < addedLineCount; i++) {
+        lines.pop();
+      }
+      for (final line in removedLines.reversed) {
+        lines.push(line);
+      }
+      rethrow;
     }
+
+    _cursorX = nextCursorX;
+    _cursorY = nextCursorY;
   }
 
   /// Create a new [CellAnchor] at the specified [x] and [y] coordinates.

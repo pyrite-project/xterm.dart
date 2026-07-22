@@ -107,6 +107,79 @@ void main() {
         expect(line.length, 20);
       }
     });
+
+    test('keeps the cursor valid when reflowing a trailing wide character', () {
+      final terminal = Terminal(maxLines: 10000)..resize(64, 10);
+      for (var i = 0; i < 30; i++) {
+        terminal.write('line $i\r\n');
+      }
+      terminal.write('\x1b[10;64H');
+      terminal.buffer.currentLine.setCodePoint(63, 0x754c);
+      terminal.buffer
+        ..index()
+        ..setCursorX(1);
+      terminal.buffer.currentLine.isWrapped = true;
+
+      expect(() => terminal.resize(63, 16), returnsNormally);
+      expect(terminal.viewWidth, 63);
+      expect(terminal.viewHeight, 16);
+      expect(terminal.buffer.cursorY, inInclusiveRange(0, 15));
+      expect(terminal.buffer.absoluteCursorY, lessThan(terminal.buffer.height));
+      expect(terminal.buffer.getText(), contains('\u754c'));
+      expect(() => terminal.write('x'), returnsNormally);
+    });
+
+    test('rolls back height growth when width reflow fails', () {
+      final terminal = Terminal()..resize(10, 10);
+      terminal.buffer.lines[0] = _ThrowingBufferLine(10);
+
+      expect(() => terminal.resize(9, 16), throwsStateError);
+      expect(terminal.viewHeight, 10);
+      expect(terminal.buffer.height, 10);
+      expect(terminal.buffer.cursorY, 0);
+      expect(terminal.altBuffer.height, 10);
+      expect(terminal.altBuffer.lines[0].length, 10);
+      expect(() => terminal.write('x'), returnsNormally);
+    });
+
+    test('rolls back height shrink when width reflow fails', () {
+      final terminal = Terminal()..resize(10, 10);
+      terminal.buffer.lines[0] = _ThrowingBufferLine(10);
+
+      expect(() => terminal.resize(9, 5), throwsStateError);
+      expect(terminal.viewHeight, 10);
+      expect(terminal.buffer.height, 10);
+      expect(terminal.buffer.cursorY, 0);
+      expect(terminal.altBuffer.height, 10);
+      expect(terminal.altBuffer.lines[0].length, 10);
+      expect(() => terminal.write('x'), returnsNormally);
+    });
+  });
+
+  group('Buffer.writeChar()', () {
+    test('wraps a wide character before the final column', () {
+      final terminal = Terminal()
+        ..resize(4, 3)
+        ..write('123\u754c');
+
+      expect(terminal.buffer.lines[0].toString(), '123');
+      expect(terminal.buffer.lines[1].toString(), '\u754c');
+      expect(terminal.buffer.lines[1].isWrapped, isTrue);
+      expect(terminal.buffer.lines[1].getWidth(0), 2);
+    });
+
+    test('does not split a wide character in a one-column viewport', () {
+      final terminal = Terminal()
+        ..resize(1, 2)
+        ..write('\u754c');
+
+      expect(terminal.buffer.cursorY, 0);
+      expect(terminal.buffer.lines[0].getCodePoint(0), 0x754c);
+      expect(terminal.buffer.lines[1].getCodePoint(0), 0);
+
+      expect(() => terminal.resize(2, 2), returnsNormally);
+      expect(terminal.buffer.getText(), contains('\u754c'));
+    });
   });
 
   group('Buffer.restoreCursor()', () {
@@ -294,4 +367,13 @@ void main() {
       expect(terminal.buffer.lines[2].toString(), '');
     });
   });
+}
+
+class _ThrowingBufferLine extends BufferLine {
+  _ThrowingBufferLine(int length) : super(length);
+
+  @override
+  int getTrimmedLength([int? cols]) {
+    throw StateError('forced reflow failure');
+  }
 }

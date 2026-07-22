@@ -1,3 +1,5 @@
+import 'dart:math' show min;
+
 import 'package:xterm/src/core/buffer/line.dart';
 import 'package:xterm/src/utils/circular_buffer.dart';
 
@@ -59,10 +61,25 @@ class _LineReflow {
 
   late final _builder = _LineBuilder(newWidth);
 
+  // Older writers could split a trailing wide character into an empty row.
+  var _hasOverflowingWideCharacter = false;
+
   /// Adds a line to the reflow operation. This method will try to reuse the
   /// given line if possible.
   void add(BufferLine line) {
-    final trimmedLength = line.getTrimmedLength(oldWidth);
+    final sourceLength = line.getTrimmedLength(oldWidth);
+    final trimmedLength = min(sourceLength, oldWidth);
+    final isOverflowContinuation = _hasOverflowingWideCharacter &&
+        trimmedLength == 0 &&
+        _builder.isNotEmpty;
+    _hasOverflowingWideCharacter = sourceLength > oldWidth;
+
+    if (isOverflowContinuation) {
+      for (final anchor in line.anchors.toList()) {
+        _builder.addAnchor(anchor, anchor.x);
+      }
+      return;
+    }
 
     // A fast path for empty lines
     if (trimmedLength == 0) {
@@ -120,7 +137,9 @@ class _LineReflow {
       }
 
       // Leave the last cell to the next iteration if it's a wide char.
-      if (lineFilled && line.getWidth(from + cellsToCopy - 1) == 2) {
+      if (lineFilled &&
+          cellsToCopy > 1 &&
+          line.getWidth(from + cellsToCopy - 1) == 2) {
         cellsToCopy--;
       }
 

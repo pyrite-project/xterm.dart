@@ -361,9 +361,9 @@ class Terminal with Observable implements TerminalState, EscapeHandler {
 
     onResize?.call(newWidth, newHeight, pixelWidth ?? 0, pixelHeight ?? 0);
 
-    //we need to resize both buffers so that they are ready when we switch between them
-    _altBuffer.resize(_viewWidth, _viewHeight, newWidth, newHeight);
+    // Resize the reflowing buffer first so a reflow failure leaves alt intact.
     _mainBuffer.resize(_viewWidth, _viewHeight, newWidth, newHeight);
+    _altBuffer.resize(_viewWidth, _viewHeight, newWidth, newHeight);
 
     _viewWidth = newWidth;
     _viewHeight = newHeight;
