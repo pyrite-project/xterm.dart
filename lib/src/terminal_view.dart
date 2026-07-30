@@ -336,6 +336,17 @@ class TerminalViewState extends State<TerminalView> {
     return renderTerminal.localToGlobal(renderTerminal.cursorOffset) & renderTerminal.cellSize;
   }
 
+  bool scrollBy(double delta) {
+    if (!_scrollController.hasClients || delta == 0) return false;
+    final position = _scrollController.position;
+    final target = (position.pixels + delta)
+        .clamp(position.minScrollExtent, position.maxScrollExtent)
+        .toDouble();
+    if (target == position.pixels) return false;
+    _scrollController.jumpTo(target);
+    return true;
+  }
+
   void _onTapUp(TapUpDetails details) {
     final offset = renderTerminal.getCellOffset(details.localPosition);
     widget.onTapUp?.call(details, offset);

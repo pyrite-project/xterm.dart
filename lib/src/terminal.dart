@@ -229,6 +229,14 @@ class Terminal with Observable implements TerminalState, EscapeHandler {
     notifyListeners();
   }
 
+  /// Clears both buffers, their scrollback, cursor positions, and margins.
+  void clear() {
+    _mainBuffer.clear();
+    _altBuffer.clear();
+    _precedingCodepoint = 0;
+    notifyListeners();
+  }
+
   /// Sends a key event to the underlying program.
   ///
   /// See also:

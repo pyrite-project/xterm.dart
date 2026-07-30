@@ -382,6 +382,11 @@ class Buffer {
     for (int i = 0; i < viewHeight; i++) {
       lines.push(_newEmptyLine());
     }
+    _cursorX = 0;
+    _cursorY = 0;
+    _savedCursorX = 0;
+    _savedCursorY = 0;
+    resetVerticalMargins();
   }
 
   void insertBlankChars(int count) {

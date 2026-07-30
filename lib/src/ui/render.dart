@@ -287,15 +287,22 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
         _terminal.buffer.createAnchorFromOffset(fromPosition),
       );
     } else {
-      var toPosition = getCellOffset(to);
-      if (toPosition.x >= fromPosition.x) {
-        toPosition = CellOffset(toPosition.x + 1, toPosition.y);
-      }
-      _controller.setSelection(
-        _terminal.buffer.createAnchorFromOffset(fromPosition),
-        _terminal.buffer.createAnchorFromOffset(toPosition),
-      );
+      selectCharactersFromCell(fromPosition, to);
     }
+  }
+
+  /// Extends a selection from a stable buffer cell while the viewport scrolls.
+  void selectCharactersFromCell(CellOffset fromPosition, Offset to) {
+    var toPosition = getCellOffset(to);
+    final isAfterStart = toPosition.y > fromPosition.y ||
+        toPosition.y == fromPosition.y && toPosition.x >= fromPosition.x;
+    if (isAfterStart) {
+      toPosition = CellOffset(toPosition.x + 1, toPosition.y);
+    }
+    _controller.setSelection(
+      _terminal.buffer.createAnchorFromOffset(fromPosition),
+      _terminal.buffer.createAnchorFromOffset(toPosition),
+    );
   }
 
   /// Send a mouse event at [offset] with [button] being currently in [buttonState].
