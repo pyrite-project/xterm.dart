@@ -46,6 +46,7 @@ class TerminalView extends StatefulWidget {
     this.shortcuts,
     this.onKeyEvent,
     this.readOnly = false,
+    this.inputEnabled = true,
     this.hardwareKeyboardOnly = false,
     this.simulateScroll = true,
   });
@@ -130,6 +131,12 @@ class TerminalView extends StatefulWidget {
   /// True if no input should send to the terminal.
   final bool readOnly;
 
+  /// Whether this view owns keyboard focus and text input.
+  ///
+  /// Disable this when the terminal is used as a render-only transcript and
+  /// input is managed by a host widget. Selection and scrolling remain active.
+  final bool inputEnabled;
+
   /// True if only hardware keyboard events should be used as input. This will
   /// also prevent any on-screen keyboard to be shown.
   final bool hardwareKeyboardOnly;
@@ -162,7 +169,8 @@ class TerminalViewState extends State<TerminalView> {
 
   late ScrollController _scrollController;
 
-  RenderTerminal get renderTerminal => _viewportKey.currentContext!.findRenderObject() as RenderTerminal;
+  RenderTerminal get renderTerminal =>
+      _viewportKey.currentContext!.findRenderObject() as RenderTerminal;
 
   @override
   void initState() {
@@ -247,7 +255,7 @@ class TerminalViewState extends State<TerminalView> {
       child: child,
     );
 
-    if (!widget.hardwareKeyboardOnly) {
+    if (widget.inputEnabled && !widget.hardwareKeyboardOnly) {
       child = CustomTextEdit(
         key: _customTextEditKey,
         focusNode: _focusNode,
@@ -264,7 +272,8 @@ class TerminalViewState extends State<TerminalView> {
         onAction: (action) {
           _scrollToBottom();
           // Android sends TextInputAction.newline when the user presses the virtual keyboard's enter key.
-          if (action == TextInputAction.done || action == TextInputAction.newline) {
+          if (action == TextInputAction.done ||
+              action == TextInputAction.newline) {
             widget.terminal.keyInput(TerminalKey.enter);
           }
         },
@@ -272,7 +281,7 @@ class TerminalViewState extends State<TerminalView> {
         readOnly: widget.readOnly,
         child: child,
       );
-    } else if (!widget.readOnly) {
+    } else if (widget.inputEnabled && !widget.readOnly) {
       // Only listen for key input from a hardware keyboard.
       child = CustomKeyboardListener(
         child: child,
@@ -299,9 +308,11 @@ class TerminalViewState extends State<TerminalView> {
       terminalView: this,
       terminalController: _controller,
       onTapUp: _onTapUp,
-      onTapDown: _onTapDown,
-      onSecondaryTapDown: widget.onSecondaryTapDown != null ? _onSecondaryTapDown : null,
-      onSecondaryTapUp: widget.onSecondaryTapUp != null ? _onSecondaryTapUp : null,
+      onTapDown: widget.inputEnabled ? _onTapDown : null,
+      onSecondaryTapDown:
+          widget.onSecondaryTapDown != null ? _onSecondaryTapDown : null,
+      onSecondaryTapUp:
+          widget.onSecondaryTapUp != null ? _onSecondaryTapUp : null,
       readOnly: widget.readOnly,
       child: child,
     );
@@ -312,7 +323,9 @@ class TerminalViewState extends State<TerminalView> {
     );
 
     child = Container(
-      color: widget.theme.background.withOpacity(widget.backgroundOpacity),
+      color: widget.theme.background.withValues(
+        alpha: widget.backgroundOpacity,
+      ),
       padding: widget.padding,
       child: child,
     );
@@ -333,7 +346,8 @@ class TerminalViewState extends State<TerminalView> {
   }
 
   Rect get globalCursorRect {
-    return renderTerminal.localToGlobal(renderTerminal.cursorOffset) & renderTerminal.cellSize;
+    return renderTerminal.localToGlobal(renderTerminal.cursorOffset) &
+        renderTerminal.cellSize;
   }
 
   bool scrollBy(double delta) {
@@ -352,7 +366,7 @@ class TerminalViewState extends State<TerminalView> {
     widget.onTapUp?.call(details, offset);
   }
 
-  void _onTapDown(_) {
+  void _onTapDown(TapDownDetails _) {
     if (_controller.selection != null) {
       _controller.clearSelection();
     } else {
@@ -413,27 +427,22 @@ class TerminalViewState extends State<TerminalView> {
       return shortcutResult;
     }
 
-    if (event is KeyUpEvent) {
-      return KeyEventResult.ignored;
-    }
+    return sendKeyEvent(event);
+  }
 
+  /// Encodes a Flutter key event with xterm's key map without requiring this
+  /// view to own focus.
+  KeyEventResult sendKeyEvent(KeyEvent event) {
+    if (event is KeyUpEvent) return KeyEventResult.ignored;
     final key = keyToTerminalKey(event.logicalKey);
-
-    if (key == null) {
-      return KeyEventResult.ignored;
-    }
-
+    if (key == null) return KeyEventResult.ignored;
     final handled = widget.terminal.keyInput(
       key,
       ctrl: HardwareKeyboard.instance.isControlPressed,
       alt: HardwareKeyboard.instance.isAltPressed,
       shift: HardwareKeyboard.instance.isShiftPressed,
     );
-
-    if (handled) {
-      _scrollToBottom();
-    }
-
+    if (handled) _scrollToBottom();
     return handled ? KeyEventResult.handled : KeyEventResult.ignored;
   }
 
