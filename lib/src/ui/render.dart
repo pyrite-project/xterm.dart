@@ -380,7 +380,12 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
   }
 
   double get _maxScrollExtent {
-    return max(_terminalHeight - _viewportHeight, 0.0);
+    final visibleRows = _viewportHeight ~/ lineHeight;
+    if (visibleRows == 0) {
+      return max(_terminalHeight - _viewportHeight, 0.0);
+    }
+    final visibleGridHeight = visibleRows * lineHeight;
+    return max(_terminalHeight - visibleGridHeight, 0.0);
   }
 
   double get _lineOffset {
@@ -407,6 +412,9 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
 
   void _paint(PaintingContext context, Offset offset) {
     final canvas = context.canvas;
+
+    canvas.save();
+    canvas.clipRect(offset & size);
 
     final lines = _terminal.buffer.lines;
     final charHeight = _painter.cellSize.height;
@@ -459,6 +467,8 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
         effectLastLine,
       );
     }
+
+    canvas.restore();
   }
 
   /// Paints the text that is currently being composed in IME to [canvas] at
