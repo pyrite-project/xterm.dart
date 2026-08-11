@@ -25,6 +25,7 @@ class TerminalTheme {
     required this.searchHitBackground,
     required this.searchHitBackgroundCurrent,
     required this.searchHitForeground,
+    this.minimumContrastRatio = 1,
   });
 
   final Color cursor;
@@ -54,4 +55,51 @@ class TerminalTheme {
   final Color searchHitBackground;
   final Color searchHitBackgroundCurrent;
   final Color searchHitForeground;
+
+  /// Minimum contrast ratio applied to cell foreground colors.
+  ///
+  /// A value of 1 disables adjustment. WCAG AA normal text uses 4.5.
+  final double minimumContrastRatio;
+}
+
+Color ensureTerminalContrast(
+  Color foreground,
+  Color background,
+  double minimumContrastRatio,
+) {
+  final minimum = minimumContrastRatio.clamp(1.0, 21.0);
+  if (minimum <= 1 ||
+      terminalContrastRatio(foreground, background) >= minimum) {
+    return foreground;
+  }
+
+  final black = const Color(0xFF000000);
+  final white = const Color(0xFFFFFFFF);
+  final target = terminalContrastRatio(black, background) >
+          terminalContrastRatio(white, background)
+      ? black
+      : white;
+
+  var low = 0.0;
+  var high = 1.0;
+  for (var i = 0; i < 8; i++) {
+    final amount = (low + high) / 2;
+    final candidate = Color.lerp(foreground, target, amount)!;
+    if (terminalContrastRatio(candidate, background) >= minimum) {
+      high = amount;
+    } else {
+      low = amount;
+    }
+  }
+  return Color.lerp(foreground, target, high)!;
+}
+
+double terminalContrastRatio(Color first, Color second) {
+  final firstLuminance = first.computeLuminance();
+  final secondLuminance = second.computeLuminance();
+  final lighter =
+      firstLuminance > secondLuminance ? firstLuminance : secondLuminance;
+  final darker =
+      firstLuminance > secondLuminance ? secondLuminance : firstLuminance;
+  return (lighter + 0.05) / (darker + 0.05);
 }

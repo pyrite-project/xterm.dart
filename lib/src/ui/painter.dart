@@ -140,18 +140,174 @@ class TerminalPainter {
     final cellData = CellData.empty();
     final cellWidth = _cellSize.width;
 
+    // Backgrounds remain cell-based even when foreground glyphs are shaped
+    // together as a run.
     for (var i = 0; i < line.length; i++) {
       line.getCellData(i, cellData);
+      final cellOffset = offset.translate(i * cellWidth, 0);
+      paintCellBackground(canvas, cellOffset, cellData);
 
       final charWidth = cellData.content >> CellContent.widthShift;
+      if (charWidth == 2) i++;
+    }
+
+    if (!_textStyle.enableLigatures) {
+      for (var i = 0; i < line.length; i++) {
+        line.getCellData(i, cellData);
+        paintCellForeground(
+          canvas,
+          offset.translate(i * cellWidth, 0),
+          cellData,
+        );
+        if (cellData.content >> CellContent.widthShift == 2) i++;
+      }
+      return;
+    }
+
+    for (var i = 0; i < line.length;) {
+      line.getCellData(i, cellData);
       final cellOffset = offset.translate(i * cellWidth, 0);
+      final charWidth = cellData.content >> CellContent.widthShift;
 
-      paintCell(canvas, cellOffset, cellData);
+      if (!_isLigatureCell(cellData, charWidth)) {
+        paintCellForeground(canvas, cellOffset, cellData);
+        i += charWidth == 2 ? 2 : 1;
+        continue;
+      }
 
-      if (charWidth == 2) {
+      final runStart = i;
+      final runStyle = _copyCellData(cellData);
+      final text = StringBuffer();
+      while (i < line.length) {
+        line.getCellData(i, cellData);
+        if (!_isLigatureCell(
+              cellData,
+              cellData.content >> CellContent.widthShift,
+            ) ||
+            !_sameShapingStyle(cellData, runStyle)) {
+          break;
+        }
+        text.writeCharCode(cellData.content & CellContent.codepointMask);
         i++;
       }
+
+      _paintTextRun(
+        canvas,
+        offset.translate(runStart * cellWidth, 0),
+        text.toString(),
+        runStyle,
+        i - runStart,
+      );
     }
+  }
+
+  /// Returns the adjacent printable runs that are eligible for shaping.
+  ///
+  /// This avoids platform-specific raster comparisons in rendering tests.
+  List<String> debugLigatureRuns(BufferLine line) {
+    if (!_textStyle.enableLigatures) return const [];
+
+    final runs = <String>[];
+    final cellData = CellData.empty();
+    for (var i = 0; i < line.length;) {
+      line.getCellData(i, cellData);
+      final width = cellData.content >> CellContent.widthShift;
+      if (!_isLigatureCell(cellData, width)) {
+        i += width == 2 ? 2 : 1;
+        continue;
+      }
+
+      final runStyle = _copyCellData(cellData);
+      final text = StringBuffer();
+      while (i < line.length) {
+        line.getCellData(i, cellData);
+        if (!_isLigatureCell(
+              cellData,
+              cellData.content >> CellContent.widthShift,
+            ) ||
+            !_sameShapingStyle(cellData, runStyle)) {
+          break;
+        }
+        text.writeCharCode(cellData.content & CellContent.codepointMask);
+        i++;
+      }
+      runs.add(text.toString());
+    }
+    return runs;
+  }
+
+  CellData _copyCellData(CellData value) => CellData(
+        foreground: value.foreground,
+        background: value.background,
+        flags: value.flags,
+        content: value.content,
+      );
+
+  bool _sameShapingStyle(CellData a, CellData b) =>
+      a.foreground == b.foreground &&
+      a.background == b.background &&
+      a.flags == b.flags;
+
+  bool _isLigatureCell(CellData cellData, int charWidth) {
+    final charCode = cellData.content & CellContent.codepointMask;
+    // Programming ligatures are visible ASCII punctuation sequences. Keeping
+    // this path narrow preserves the existing behavior for CJK, combining
+    // marks, spaces, and box-drawing glyphs.
+    return charWidth == 1 && charCode >= 0x21 && charCode <= 0x7e;
+  }
+
+  void _paintTextRun(
+    Canvas canvas,
+    Offset offset,
+    String text,
+    CellData cellData,
+    int cellCount,
+  ) {
+    final cellFlags = cellData.flags;
+    final inverse = cellFlags & CellFlags.inverse != 0;
+    var color = inverse
+        ? resolveBackgroundColor(cellData.background)
+        : resolveForegroundColor(cellData.foreground);
+    final background = inverse
+        ? resolveForegroundColor(cellData.foreground)
+        : resolveBackgroundColor(cellData.background);
+    color = ensureTerminalContrast(
+      color,
+      background,
+      _theme.minimumContrastRatio,
+    );
+    if (cellFlags & CellFlags.faint != 0) {
+      color = color.withValues(alpha: 0.5);
+    }
+
+    final style = _textStyle.toTextStyle(
+      color: color,
+      bold: cellFlags & CellFlags.bold != 0,
+      italic: cellFlags & CellFlags.italic != 0,
+      underline: cellFlags & CellFlags.underline != 0,
+    );
+    final width = cellCount * _cellSize.width;
+    final cacheKey = Object.hash(
+      text,
+      cellData.foreground,
+      cellData.background,
+      cellData.flags,
+      width,
+      _textScaler,
+    );
+    var paragraph = _paragraphCache.getLayoutFromCache(cacheKey);
+    paragraph ??= _paragraphCache.performAndCacheLayout(
+      text,
+      style,
+      _textScaler,
+      cacheKey,
+      width: width,
+    );
+
+    canvas.save();
+    canvas.clipRect(offset & Size(width, _cellSize.height));
+    canvas.drawParagraph(paragraph, offset);
+    canvas.restore();
   }
 
   @pragma('vm:prefer-inline')
@@ -168,9 +324,18 @@ class TerminalPainter {
     if (charCode == 0) return;
 
     final cellFlags = cellData.flags;
-    var color = cellFlags & CellFlags.inverse == 0
+    final inverse = cellFlags & CellFlags.inverse != 0;
+    var color = inverse
+        ? resolveBackgroundColor(cellData.background)
+        : resolveForegroundColor(cellData.foreground);
+    final background = inverse
         ? resolveForegroundColor(cellData.foreground)
         : resolveBackgroundColor(cellData.background);
+    color = ensureTerminalContrast(
+      color,
+      background,
+      _theme.minimumContrastRatio,
+    );
 
     if (cellFlags & CellFlags.faint != 0) {
       color = color.withValues(alpha: 0.5);

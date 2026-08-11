@@ -216,6 +216,7 @@ class EscapeParser {
     }
 
     _csi.params.clear();
+    _csi.rawParams.clear();
 
     // test whether the csi is a `CSI ? Ps ...` or `CSI Ps ...`
     final prefix = _queue.peek();
@@ -237,17 +238,25 @@ class EscapeParser {
       final char = _queue.consume();
 
       if (char == Ascii.semicolon) {
+        _csi.rawParams.writeCharCode(char);
         if (hasParam) {
           _csi.params.add(param);
         }
         param = 0;
+        hasParam = false;
         continue;
       }
 
       if (char >= Ascii.num0 && char <= Ascii.num9) {
+        _csi.rawParams.writeCharCode(char);
         hasParam = true;
         param *= 10;
         param += char - Ascii.num0;
+        continue;
+      }
+
+      if (char == Ascii.colon) {
+        _csi.rawParams.writeCharCode(char);
         continue;
       }
 
@@ -408,16 +417,14 @@ class EscapeParser {
   ///
   /// https://terminalguide.namepad.de/seq/csi_sm/
   void _csiHandleSgr() {
-    final params = _csi.params;
+    final params = _parseSgrParams(_csi.rawParams.toString());
 
     if (params.isEmpty) {
       return handler.resetCursorStyle();
     }
 
-    // This is a workaround for a bug in the analyzer.
-    // ignore: dead_code
-    for (var i = 0; i < _csi.params.length; i++) {
-      final param = params[i];
+    for (var i = 0; i < params.length; i++) {
+      final param = params[i].value;
       switch (param) {
         case 0:
           handler.resetCursorStyle();
@@ -497,21 +504,7 @@ class EscapeParser {
           handler.setForegroundColor16(NamedColor.white);
           continue;
         case 38:
-          final mode = params[i + 1];
-          switch (mode) {
-            case 2:
-              final r = params[i + 2];
-              final g = params[i + 3];
-              final b = params[i + 4];
-              handler.setForegroundColorRgb(r, g, b);
-              i += 4;
-              break;
-            case 5:
-              final index = params[i + 2];
-              handler.setForegroundColor256(index);
-              i += 2;
-              break;
-          }
+          i += _handleExtendedColor(params, i, foreground: true);
           continue;
         case 39:
           handler.resetForeground();
@@ -542,21 +535,7 @@ class EscapeParser {
           handler.setBackgroundColor16(NamedColor.white);
           continue;
         case 48:
-          final mode = params[i + 1];
-          switch (mode) {
-            case 2:
-              final r = params[i + 2];
-              final g = params[i + 3];
-              final b = params[i + 4];
-              handler.setBackgroundColorRgb(r, g, b);
-              i += 4;
-              break;
-            case 5:
-              final index = params[i + 2];
-              handler.setBackgroundColor256(index);
-              i += 2;
-              break;
-          }
+          i += _handleExtendedColor(params, i, foreground: false);
           continue;
         case 49:
           handler.resetBackground();
@@ -617,6 +596,96 @@ class EscapeParser {
           continue;
       }
     }
+  }
+
+  int _handleExtendedColor(
+    List<_SgrParam> params,
+    int offset, {
+    required bool foreground,
+  }) {
+    final subParams = params[offset].subParams;
+    if (subParams != null) {
+      final mode = subParams.isEmpty ? null : subParams.first;
+      if (mode == 2) {
+        // Both 38:2:R:G:B and 38:2:<color-space>:R:G:B are in use.
+        final rgbOffset = subParams.length >= 5 ? 2 : 1;
+        if (subParams.length >= rgbOffset + 3) {
+          _setRgbColor(
+            subParams[rgbOffset],
+            subParams[rgbOffset + 1],
+            subParams[rgbOffset + 2],
+            foreground: foreground,
+          );
+        }
+      } else if (mode == 5 && subParams.length >= 2) {
+        _setPaletteColor(subParams[1], foreground: foreground);
+      }
+      return 0;
+    }
+
+    if (offset + 1 >= params.length) return 0;
+    final mode = params[offset + 1].value;
+    if (mode == 2) {
+      final available = params.length - offset - 1;
+      final consumed = available.clamp(0, 4).toInt();
+      if (available >= 4) {
+        _setRgbColor(
+          params[offset + 2].value,
+          params[offset + 3].value,
+          params[offset + 4].value,
+          foreground: foreground,
+        );
+      }
+      return consumed;
+    }
+    if (mode == 5) {
+      final available = params.length - offset - 1;
+      final consumed = available.clamp(0, 2).toInt();
+      if (available >= 2) {
+        _setPaletteColor(params[offset + 2].value, foreground: foreground);
+      }
+      return consumed;
+    }
+    return 1;
+  }
+
+  void _setRgbColor(int? r, int? g, int? b, {required bool foreground}) {
+    if (!_isColorComponent(r) ||
+        !_isColorComponent(g) ||
+        !_isColorComponent(b)) {
+      return;
+    }
+    if (foreground) {
+      handler.setForegroundColorRgb(r!, g!, b!);
+    } else {
+      handler.setBackgroundColorRgb(r!, g!, b!);
+    }
+  }
+
+  void _setPaletteColor(int? index, {required bool foreground}) {
+    if (!_isColorComponent(index)) return;
+    if (foreground) {
+      handler.setForegroundColor256(index!);
+    } else {
+      handler.setBackgroundColor256(index!);
+    }
+  }
+
+  bool _isColorComponent(int? value) =>
+      value != null && value >= 0 && value <= 255;
+
+  List<_SgrParam> _parseSgrParams(String source) {
+    if (source.isEmpty) return const [];
+    return source.split(';').map((part) {
+      if (!part.contains(':')) {
+        return _SgrParam(int.tryParse(part) ?? 0);
+      }
+      final values = part
+          .split(':')
+          .map((value) => value.isEmpty ? null : int.tryParse(value))
+          .toList();
+      return _SgrParam(values.first ?? 0, values.sublist(1));
+    }).toList();
   }
 
   /// `ESC [ Ps n` Device Status Report [Dispatch] (DSR)
@@ -1136,6 +1205,8 @@ class _Csi {
 
   List<int> params;
 
+  final rawParams = StringBuffer();
+
   int finalByte;
   // final List<int> intermediates;
 
@@ -1143,6 +1214,13 @@ class _Csi {
   String toString() {
     return params.join(';') + String.fromCharCode(finalByte);
   }
+}
+
+class _SgrParam {
+  const _SgrParam(this.value, [this.subParams]);
+
+  final int value;
+  final List<int?>? subParams;
 }
 
 /// Function that handles a sequence of characters that starts with an escape.

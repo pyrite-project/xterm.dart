@@ -29,7 +29,7 @@ class TerminalStyle {
     this.height = _kDefaultHeight,
     this.fontFamily = _kDefaultFontFamily,
     this.fontFamilyFallback = _kDefaultFontFamilyFallback,
-    this.enableUnderline = true,
+    this.enableLigatures = true,
   });
 
   factory TerminalStyle.fromTextStyle(TextStyle textStyle) {
@@ -41,8 +41,7 @@ class TerminalStyle {
           _kDefaultFontFamily,
       fontFamilyFallback:
           textStyle.fontFamilyFallback ?? _kDefaultFontFamilyFallback,
-      enableUnderline: textStyle.decoration == null ||
-          textStyle.decoration != TextDecoration.none,
+      enableLigatures: true,
     );
   }
 
@@ -54,7 +53,8 @@ class TerminalStyle {
 
   final List<String> fontFamilyFallback;
 
-  final bool enableUnderline;
+  /// Whether OpenType standard ligatures and contextual alternates are used.
+  final bool enableLigatures;
 
   TextStyle toTextStyle({
     Color? color,
@@ -72,9 +72,15 @@ class TerminalStyle {
       backgroundColor: backgroundColor,
       fontWeight: bold ? FontWeight.bold : FontWeight.normal,
       fontStyle: italic ? FontStyle.italic : FontStyle.normal,
-      decoration: underline && enableUnderline
-          ? TextDecoration.underline
-          : TextDecoration.none,
+      decoration: underline ? TextDecoration.underline : TextDecoration.none,
+      fontFeatures: [
+        enableLigatures
+            ? FontFeature.enable('liga')
+            : FontFeature.disable('liga'),
+        enableLigatures
+            ? FontFeature.enable('calt')
+            : FontFeature.disable('calt'),
+      ],
     );
   }
 
@@ -84,13 +90,14 @@ class TerminalStyle {
     String? fontFamily,
     List<String>? fontFamilyFallback,
     bool? enableUnderline,
+    bool? enableLigatures,
   }) {
     return TerminalStyle(
       fontSize: fontSize ?? this.fontSize,
       height: height ?? this.height,
       fontFamily: fontFamily ?? this.fontFamily,
       fontFamilyFallback: fontFamilyFallback ?? this.fontFamilyFallback,
-      enableUnderline: enableUnderline ?? this.enableUnderline,
+      enableLigatures: enableLigatures ?? this.enableLigatures,
     );
   }
 }

@@ -2,6 +2,35 @@ import 'package:test/test.dart';
 import 'package:xterm/core.dart';
 
 void main() {
+  group('Terminal true color', () {
+    test('stores RGB foreground and background on cells', () {
+      final terminal = Terminal();
+
+      terminal.write('\x1b[38;2;12;34;56;48:2::78:90:123mX');
+
+      final line = terminal.buffer.lines[0];
+      expect(line.getForeground(0) & CellColor.typeMask, CellColor.rgb);
+      expect(line.getForeground(0) & CellColor.valueMask, 0x0c2238);
+      expect(line.getBackground(0) & CellColor.typeMask, CellColor.rgb);
+      expect(line.getBackground(0) & CellColor.valueMask, 0x4e5a7b);
+    });
+
+    test('resets RGB foreground and background independently', () {
+      final terminal = Terminal();
+
+      terminal.write(
+        '\x1b[38;2;12;34;56;48;2;78;90;123mX'
+        '\x1b[39mY\x1b[49mZ',
+      );
+
+      final line = terminal.buffer.lines[0];
+      expect(line.getForeground(1) & CellColor.typeMask, CellColor.normal);
+      expect(line.getBackground(1) & CellColor.typeMask, CellColor.rgb);
+      expect(line.getForeground(2) & CellColor.typeMask, CellColor.normal);
+      expect(line.getBackground(2) & CellColor.typeMask, CellColor.normal);
+    });
+  });
+
   group('Terminal.inputHandler', () {
     test('can be set to null', () {
       final terminal = Terminal(inputHandler: null);
