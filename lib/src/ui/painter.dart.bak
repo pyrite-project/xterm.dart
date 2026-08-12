@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/painting.dart';
 
@@ -345,7 +344,7 @@ class TerminalPainter {
       color = color.withValues(alpha: 0.5);
     }
 
-    if (_paintGeneratedGlyph(canvas, offset, charCode, color)) return;
+    if (_paintBoxDrawing(canvas, offset, charCode, color)) return;
 
     final cacheKey = cellData.getHash() ^ _textScaler.hashCode;
     var paragraph = _paragraphCache.getLayoutFromCache(cacheKey);
@@ -374,216 +373,6 @@ class TerminalPainter {
     canvas.drawParagraph(paragraph, offset);
   }
 
-  bool _paintGeneratedGlyph(
-    Canvas canvas,
-    Offset offset,
-    int charCode,
-    Color color,
-  ) {
-    return _paintPowerlineSymbol(canvas, offset, charCode, color) ||
-        _paintBlockElement(canvas, offset, charCode, color) ||
-        _paintBoxDrawing(canvas, offset, charCode, color);
-  }
-
-  bool _paintPowerlineSymbol(
-    Canvas canvas,
-    Offset offset,
-    int charCode,
-    Color color,
-  ) {
-    if (charCode < 0xe0b0 || charCode > 0xe0b3) return false;
-
-    const bleed = 0.75;
-    final cellLeft = offset.dx;
-    final cellRight = offset.dx + _cellSize.width;
-    final cellTop = offset.dy;
-    final cellBottom = offset.dy + _cellSize.height;
-    final left = cellLeft - bleed;
-    final right = cellRight + bleed;
-    final top = cellTop - bleed;
-    final bottom = cellBottom + bleed;
-    final centerY = offset.dy + _cellSize.height / 2;
-    final path = Path();
-
-    switch (charCode) {
-      case 0xe0b0: // powerline right separator
-      case 0xe0b1: // powerline right separator thin
-        path
-          ..moveTo(left, top)
-          ..lineTo(right, centerY)
-          ..lineTo(left, bottom);
-        break;
-      case 0xe0b2: // powerline left separator
-      case 0xe0b3: // powerline left separator thin
-        path
-          ..moveTo(right, top)
-          ..lineTo(left, centerY)
-          ..lineTo(right, bottom);
-        break;
-    }
-
-    final paint = Paint()
-      ..color = color
-      ..isAntiAlias = true;
-
-    if (charCode == 0xe0b0 || charCode == 0xe0b2) {
-      path.close();
-      paint.style = PaintingStyle.fill;
-    } else {
-      paint
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.square
-        ..strokeJoin = StrokeJoin.miter
-        ..strokeWidth = (_cellSize.width / 8).clamp(1.0, 2.0).toDouble();
-    }
-
-    canvas.save();
-    canvas.clipRect(
-      Rect.fromLTRB(left, cellTop, right, cellBottom),
-      doAntiAlias: false,
-    );
-    canvas.drawPath(path, paint);
-    canvas.restore();
-    return true;
-  }
-
-  bool _paintBlockElement(
-    Canvas canvas,
-    Offset offset,
-    int charCode,
-    Color color,
-  ) {
-    if (charCode < 0x2580 || charCode > 0x259f) return false;
-
-    const bleed = 0.5;
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.fill
-      ..isAntiAlias = false;
-
-    void drawRect(double left, double top, double right, double bottom) {
-      var l = offset.dx + _cellSize.width * left;
-      var t = offset.dy + _cellSize.height * top;
-      var r = offset.dx + _cellSize.width * right;
-      var b = offset.dy + _cellSize.height * bottom;
-      if (left == 0) l -= bleed;
-      if (top == 0) t -= bleed;
-      if (right == 1) r += bleed;
-      if (bottom == 1) b += bleed;
-      canvas.drawRect(Rect.fromLTRB(l, t, r, b), paint);
-    }
-
-    switch (charCode) {
-      case 0x2580: // upper half block
-        drawRect(0, 0, 1, 0.5);
-        return true;
-      case 0x2581: // lower one eighth block
-        drawRect(0, 0.875, 1, 1);
-        return true;
-      case 0x2582: // lower one quarter block
-        drawRect(0, 0.75, 1, 1);
-        return true;
-      case 0x2583: // lower three eighths block
-        drawRect(0, 0.625, 1, 1);
-        return true;
-      case 0x2584: // lower half block
-        drawRect(0, 0.5, 1, 1);
-        return true;
-      case 0x2585: // lower five eighths block
-        drawRect(0, 0.375, 1, 1);
-        return true;
-      case 0x2586: // lower three quarters block
-        drawRect(0, 0.25, 1, 1);
-        return true;
-      case 0x2587: // lower seven eighths block
-        drawRect(0, 0.125, 1, 1);
-        return true;
-      case 0x2588: // full block
-        drawRect(0, 0, 1, 1);
-        return true;
-      case 0x2589: // left seven eighths block
-        drawRect(0, 0, 0.875, 1);
-        return true;
-      case 0x258a: // left three quarters block
-        drawRect(0, 0, 0.75, 1);
-        return true;
-      case 0x258b: // left five eighths block
-        drawRect(0, 0, 0.625, 1);
-        return true;
-      case 0x258c: // left half block
-        drawRect(0, 0, 0.5, 1);
-        return true;
-      case 0x258d: // left three eighths block
-        drawRect(0, 0, 0.375, 1);
-        return true;
-      case 0x258e: // left one quarter block
-        drawRect(0, 0, 0.25, 1);
-        return true;
-      case 0x258f: // left one eighth block
-        drawRect(0, 0, 0.125, 1);
-        return true;
-      case 0x2590: // right half block
-        drawRect(0.5, 0, 1, 1);
-        return true;
-      case 0x2591: // light shade
-      case 0x2592: // medium shade
-      case 0x2593: // dark shade
-        paint.color = color.withValues(
-          alpha: switch (charCode) {
-            0x2591 => 0.25,
-            0x2592 => 0.5,
-            _ => 0.75,
-          },
-        );
-        drawRect(0, 0, 1, 1);
-        return true;
-      case 0x2594: // upper one eighth block
-        drawRect(0, 0, 1, 0.125);
-        return true;
-      case 0x2595: // right one eighth block
-        drawRect(0.875, 0, 1, 1);
-        return true;
-      case 0x2596: // quadrant lower left
-        drawRect(0, 0.5, 0.5, 1);
-        return true;
-      case 0x2597: // quadrant lower right
-        drawRect(0.5, 0.5, 1, 1);
-        return true;
-      case 0x2598: // quadrant upper left
-        drawRect(0, 0, 0.5, 0.5);
-        return true;
-      case 0x2599: // quadrant upper left and lower half
-        drawRect(0, 0, 0.5, 1);
-        drawRect(0.5, 0.5, 1, 1);
-        return true;
-      case 0x259a: // quadrant upper left and lower right
-        drawRect(0, 0, 0.5, 0.5);
-        drawRect(0.5, 0.5, 1, 1);
-        return true;
-      case 0x259b: // quadrant upper half and lower left
-        drawRect(0, 0, 1, 0.5);
-        drawRect(0, 0.5, 0.5, 1);
-        return true;
-      case 0x259c: // quadrant upper half and lower right
-        drawRect(0, 0, 1, 0.5);
-        drawRect(0.5, 0.5, 1, 1);
-        return true;
-      case 0x259d: // quadrant upper right
-        drawRect(0.5, 0, 1, 0.5);
-        return true;
-      case 0x259e: // quadrant upper right and lower left
-        drawRect(0.5, 0, 1, 0.5);
-        drawRect(0, 0.5, 0.5, 1);
-        return true;
-      case 0x259f: // quadrant upper right and lower half
-        drawRect(0.5, 0, 1, 1);
-        drawRect(0, 0.5, 0.5, 1);
-        return true;
-      default:
-        return false;
-    }
-  }
-
   bool _paintBoxDrawing(
     Canvas canvas,
     Offset offset,
@@ -596,18 +385,17 @@ class TerminalPainter {
     if (connections == 0) return false;
 
     final strokeWidth = (_cellSize.height / 12).clamp(1.0, 1.5).toDouble();
+    final halfStroke = strokeWidth / 2;
     final paint = Paint()
       ..color = color
       ..strokeWidth = strokeWidth
       ..strokeCap = StrokeCap.butt
       ..isAntiAlias = false;
 
-    // Butt-capped segments meet at the exact cell boundary without producing
-    // the periodic overlap visible on long horizontal or vertical lines.
-    final left = offset.dx;
-    final right = offset.dx + _cellSize.width;
-    final top = offset.dy;
-    final bottom = offset.dy + _cellSize.height;
+    final left = offset.dx - halfStroke;
+    final right = offset.dx + _cellSize.width + halfStroke;
+    final top = offset.dy - halfStroke;
+    final bottom = offset.dy + _cellSize.height + halfStroke;
     final centerX = offset.dx + _cellSize.width / 2;
     final centerY = offset.dy + _cellSize.height / 2;
 
@@ -636,149 +424,38 @@ class TerminalPainter {
     if (charCode < 0x256d || charCode > 0x2570) return false;
 
     final strokeWidth = (_cellSize.height / 12).clamp(1.0, 1.5).toDouble();
-    final edgeBleed = strokeWidth / 2;
+    final halfStroke = strokeWidth / 2;
     final paint = Paint()
       ..color = color
-      ..style = PaintingStyle.fill
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.butt
+      ..style = PaintingStyle.stroke
       ..isAntiAlias = true;
 
-    final left = offset.dx - edgeBleed;
-    final right = offset.dx + _cellSize.width + edgeBleed;
-    final top = offset.dy - edgeBleed;
-    final bottom = offset.dy + _cellSize.height + edgeBleed;
+    final left = offset.dx - halfStroke;
+    final right = offset.dx + _cellSize.width + halfStroke;
+    final top = offset.dy - halfStroke;
+    final bottom = offset.dy + _cellSize.height + halfStroke;
     final centerX = offset.dx + _cellSize.width / 2;
     final centerY = offset.dy + _cellSize.height / 2;
-    final cornerRadius = (_cellSize.width / 3).clamp(2.5, 4.0).toDouble();
-    final halfStroke = strokeWidth / 2;
-
-    Path ringQuarter(Offset center, double startAngle) {
-      final outerRadius = cornerRadius + halfStroke;
-      final innerRadius = cornerRadius - halfStroke;
-      const sweepAngle = math.pi / 2;
-      final endAngle = startAngle + sweepAngle;
-      final path = Path()
-        ..moveTo(
-          center.dx + math.cos(startAngle) * outerRadius,
-          center.dy + math.sin(startAngle) * outerRadius,
-        )
-        ..arcTo(
-          Rect.fromCircle(center: center, radius: outerRadius),
-          startAngle,
-          sweepAngle,
-          false,
-        )
-        ..lineTo(
-          center.dx + math.cos(endAngle) * innerRadius,
-          center.dy + math.sin(endAngle) * innerRadius,
-        )
-        ..arcTo(
-          Rect.fromCircle(center: center, radius: innerRadius),
-          endAngle,
-          -sweepAngle,
-          false,
-        )
-        ..close();
-      return path;
-    }
-
-    Path combine(Path corner, Rect horizontal, Rect vertical) {
-      return Path.combine(
-        PathOperation.union,
-        Path.combine(
-          PathOperation.union,
-          corner,
-          Path()..addRect(horizontal),
-        ),
-        Path()..addRect(vertical),
-      );
-    }
-
-    late final Path path;
+    final path = Path();
 
     switch (charCode) {
       case 0x256d: // ╭
-        final cornerCenter = Offset(
-          centerX + cornerRadius,
-          centerY + cornerRadius,
-        );
-        path = combine(
-          ringQuarter(cornerCenter, math.pi),
-          Rect.fromLTRB(
-            cornerCenter.dx,
-            centerY - halfStroke,
-            right,
-            centerY + halfStroke,
-          ),
-          Rect.fromLTRB(
-            centerX - halfStroke,
-            cornerCenter.dy,
-            centerX + halfStroke,
-            bottom,
-          ),
-        );
+        path.moveTo(right, centerY);
+        path.quadraticBezierTo(centerX, centerY, centerX, bottom);
         break;
       case 0x256e: // ╮
-        final cornerCenter = Offset(
-          centerX - cornerRadius,
-          centerY + cornerRadius,
-        );
-        path = combine(
-          ringQuarter(cornerCenter, math.pi * 1.5),
-          Rect.fromLTRB(
-            left,
-            centerY - halfStroke,
-            cornerCenter.dx,
-            centerY + halfStroke,
-          ),
-          Rect.fromLTRB(
-            centerX - halfStroke,
-            cornerCenter.dy,
-            centerX + halfStroke,
-            bottom,
-          ),
-        );
+        path.moveTo(left, centerY);
+        path.quadraticBezierTo(centerX, centerY, centerX, bottom);
         break;
       case 0x256f: // ╯
-        final cornerCenter = Offset(
-          centerX - cornerRadius,
-          centerY - cornerRadius,
-        );
-        path = combine(
-          ringQuarter(cornerCenter, 0),
-          Rect.fromLTRB(
-            left,
-            centerY - halfStroke,
-            cornerCenter.dx,
-            centerY + halfStroke,
-          ),
-          Rect.fromLTRB(
-            centerX - halfStroke,
-            top,
-            centerX + halfStroke,
-            cornerCenter.dy,
-          ),
-        );
+        path.moveTo(left, centerY);
+        path.quadraticBezierTo(centerX, centerY, centerX, top);
         break;
       case 0x2570: // ╰
-        final cornerCenter = Offset(
-          centerX + cornerRadius,
-          centerY - cornerRadius,
-        );
-        path = combine(
-          ringQuarter(cornerCenter, math.pi / 2),
-          Rect.fromLTRB(
-            cornerCenter.dx,
-            centerY - halfStroke,
-            right,
-            centerY + halfStroke,
-          ),
-          Rect.fromLTRB(
-            centerX - halfStroke,
-            top,
-            centerX + halfStroke,
-            cornerCenter.dy,
-          ),
-        );
+        path.moveTo(right, centerY);
+        path.quadraticBezierTo(centerX, centerY, centerX, top);
         break;
     }
 
@@ -796,8 +473,6 @@ class TerminalPainter {
       case 0x2500: // ─
       case 0x2550: // ═
         return _boxLeft | _boxRight;
-      case 0x2574: // ╴
-        return _boxLeft;
       case 0x2502: // │
       case 0x2551: // ║
         return _boxUp | _boxDown;
