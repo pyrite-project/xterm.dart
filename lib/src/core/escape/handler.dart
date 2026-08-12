@@ -49,6 +49,8 @@ abstract class EscapeHandler {
 
   void setCursorY(int y);
 
+  void setCursorStyle(int style);
+
   void sendPrimaryDeviceAttributes();
 
   void clearTabStopUnderCursor();

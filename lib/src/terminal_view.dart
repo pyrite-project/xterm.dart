@@ -40,7 +40,7 @@ class TerminalView extends StatefulWidget {
     this.mouseCursor = SystemMouseCursors.text,
     this.keyboardType = TextInputType.emailAddress,
     this.keyboardAppearance = Brightness.dark,
-    this.cursorType = TerminalCursorType.block,
+    this.cursorType = TerminalCursorType.verticalBar,
     this.alwaysShowCursor = false,
     this.deleteDetection = false,
     this.shortcuts,
@@ -108,7 +108,8 @@ class TerminalView extends StatefulWidget {
   /// This setting is only honored on iOS devices.
   final Brightness keyboardAppearance;
 
-  /// The type of cursor to use. [TerminalCursorType.block] by default.
+  /// The fallback cursor type. Applications can override this with DECSCUSR.
+  /// [TerminalCursorType.verticalBar] by default.
   final TerminalCursorType cursorType;
 
   /// Whether to always show the cursor. This is useful for debugging.

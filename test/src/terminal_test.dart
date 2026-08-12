@@ -1,7 +1,44 @@
 import 'package:test/test.dart';
-import 'package:xterm/core.dart';
+import 'package:xterm/xterm.dart';
 
 void main() {
+  group('Terminal cursor shape', () {
+    test('uses the view fallback until DECSCUSR selects a shape', () {
+      final terminal = Terminal();
+
+      expect(terminal.cursorType, isNull);
+
+      terminal.write('\x1b[2 q');
+      expect(terminal.cursorType, TerminalCursorType.block);
+
+      terminal.write('\x1b[4 q');
+      expect(terminal.cursorType, TerminalCursorType.underline);
+
+      terminal.write('\x1b[6 q');
+      expect(terminal.cursorType, TerminalCursorType.verticalBar);
+
+      terminal.write('\x1b[0 q');
+      expect(terminal.cursorType, isNull);
+    });
+
+    test('ignores unsupported DECSCUSR values', () {
+      final terminal = Terminal();
+
+      terminal.write('\x1b[2 q\x1b[99 q');
+
+      expect(terminal.cursorType, TerminalCursorType.block);
+    });
+
+    test('parses a DECSCUSR sequence split across writes', () {
+      final terminal = Terminal();
+
+      terminal.write('\x1b[2 ');
+      terminal.write('q');
+
+      expect(terminal.cursorType, TerminalCursorType.block);
+    });
+  });
+
   group('Terminal true color', () {
     test('stores RGB foreground and background on cells', () {
       final terminal = Terminal();

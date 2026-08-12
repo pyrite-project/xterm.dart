@@ -201,6 +201,11 @@ class _TerminalDebuggerHandler implements EscapeHandler {
   }
 
   @override
+  void setCursorStyle(int style) {
+    onCommand('setCursorStyle($style)');
+  }
+
+  @override
   void sendPrimaryDeviceAttributes() {
     onCommand('sendPrimaryDeviceAttributes');
   }

@@ -19,6 +19,7 @@ import 'package:xterm/src/core/state.dart';
 import 'package:xterm/src/core/tabs.dart';
 import 'package:xterm/src/utils/ascii.dart';
 import 'package:xterm/src/utils/circular_buffer.dart';
+import 'package:xterm/src/ui/cursor_type.dart';
 
 /// [Terminal] is an interface to interact with command line applications. It
 /// translates escape sequences from the application into updates to the
@@ -119,6 +120,8 @@ class Terminal with Observable implements TerminalState, EscapeHandler {
 
   final _cursorStyle = CursorStyle();
 
+  TerminalCursorType? _cursorType;
+
   bool _insertMode = false;
 
   bool _lineFeedMode = false;
@@ -159,6 +162,11 @@ class Terminal with Observable implements TerminalState, EscapeHandler {
 
   @override
   CursorStyle get cursor => _cursorStyle;
+
+  /// Cursor shape requested by the application with DECSCUSR.
+  ///
+  /// A null value means the view's configured cursor shape should be used.
+  TerminalCursorType? get cursorType => _cursorType;
 
   @override
   bool get insertMode => _insertMode;
@@ -515,6 +523,17 @@ class Terminal with Observable implements TerminalState, EscapeHandler {
   @override
   void setCursorY(int y) {
     _buffer.setCursorY(y);
+  }
+
+  @override
+  void setCursorStyle(int style) {
+    _cursorType = switch (style) {
+      0 => null,
+      1 || 2 => TerminalCursorType.block,
+      3 || 4 => TerminalCursorType.underline,
+      5 || 6 => TerminalCursorType.verticalBar,
+      _ => _cursorType,
+    };
   }
 
   @override

@@ -206,7 +206,7 @@ class EscapeParser {
 
   /// The last parsed [_Csi]. This is a mutable singletion by design to reduce
   /// object allocations.
-  final _csi = _Csi(finalByte: 0, params: []);
+  final _csi = _Csi(finalByte: 0, params: [], intermediates: []);
 
   /// Parse a CSI from the head of the queue. Return false if the CSI isn't
   /// complete. After a CSI is successfully parsed, [_csi] is updated.
@@ -217,6 +217,7 @@ class EscapeParser {
 
     _csi.params.clear();
     _csi.rawParams.clear();
+    _csi.intermediates.clear();
 
     // test whether the csi is a `CSI ? Ps ...` or `CSI Ps ...`
     final prefix = _queue.peek();
@@ -261,7 +262,7 @@ class EscapeParser {
       }
 
       if (char > Ascii.NULL && char < Ascii.num0) {
-        // intermediates.add(char);
+        _csi.intermediates.add(char);
         continue;
       }
 
@@ -287,6 +288,7 @@ class EscapeParser {
     'l'.codeUnitAt(0): _csiHandleMode,
     'm'.codeUnitAt(0): _csiHandleSgr,
     'n'.codeUnitAt(0): _csiHandleDeviceStatusReport,
+    'q'.codeUnitAt(0): _csiHandleCursorStyle,
     'r'.codeUnitAt(0): _csiHandleSetMargins,
     't'.codeUnitAt(0): _csiWindowManipulation,
     'A'.codeUnitAt(0): _csiHandleCursorUp,
@@ -373,6 +375,17 @@ class EscapeParser {
     }
 
     handler.setCursor(col - 1, row - 1);
+  }
+
+  /// `ESC [ Ps SP q` Set Cursor Style (DECSCUSR)
+  void _csiHandleCursorStyle() {
+    if (_csi.prefix != null ||
+        _csi.intermediates.length != 1 ||
+        _csi.intermediates.single != Ascii.space) {
+      return handler.unknownCSI(_csi.finalByte);
+    }
+
+    handler.setCursorStyle(_csi.params.isEmpty ? 0 : _csi.params.first);
   }
 
   /// `ESC [ Ps g` Tab Clear (TBC)
@@ -1198,7 +1211,7 @@ class _Csi {
   _Csi({
     required this.params,
     required this.finalByte,
-    // required this.intermediates,
+    required this.intermediates,
   });
 
   int? prefix;
@@ -1208,7 +1221,7 @@ class _Csi {
   final rawParams = StringBuffer();
 
   int finalByte;
-  // final List<int> intermediates;
+  final List<int> intermediates;
 
   @override
   String toString() {
