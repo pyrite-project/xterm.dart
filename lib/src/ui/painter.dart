@@ -393,7 +393,10 @@ class TerminalPainter {
   ) {
     if (charCode < 0xe0b0 || charCode > 0xe0b3) return false;
 
-    const bleed = 0.75;
+    // Same rule as the block elements: a translucent separator must not be
+    // bled into its neighbour, or the overlap doubles its alpha and leaves a
+    // visible seam between two cells of the same separator run.
+    final bleed = color.a >= 1.0 ? 0.75 : 0.0;
     final cellLeft = offset.dx;
     final cellRight = offset.dx + _cellSize.width;
     final cellTop = offset.dy;
@@ -455,13 +458,24 @@ class TerminalPainter {
   ) {
     if (charCode < 0x2580 || charCode > 0x259f) return false;
 
-    const bleed = 0.5;
+    // The half pixel bleed keeps neighbouring opaque blocks seamless, but it
+    // makes adjacent translucent blocks overlap. Two 50% rects over each other
+    // composite to 75%, so a faint (dimmed) block row came out as bright
+    // stripes at every cell boundary — exactly what happens to the top row of
+    // a block-art logo drawn with the faint attribute. Bleed only when the
+    // colour is opaque; translucent blocks still meet on the exact same
+    // fractional edge, so no gap opens up.
+    final bleed = color.a >= 1.0 ? 0.5 : 0.0;
     final paint = Paint()
       ..color = color
       ..style = PaintingStyle.fill
       ..isAntiAlias = false;
 
-    void drawRect(double left, double top, double right, double bottom) {
+    // One path per cell: the pieces of a quadrant glyph overlap each other, and
+    // separate draw calls would composite that overlap twice as well.
+    final path = Path();
+
+    void addRect(double left, double top, double right, double bottom) {
       var l = offset.dx + _cellSize.width * left;
       var t = offset.dy + _cellSize.height * top;
       var r = offset.dx + _cellSize.width * right;
@@ -470,61 +484,61 @@ class TerminalPainter {
       if (top == 0) t -= bleed;
       if (right == 1) r += bleed;
       if (bottom == 1) b += bleed;
-      canvas.drawRect(Rect.fromLTRB(l, t, r, b), paint);
+      path.addRect(Rect.fromLTRB(l, t, r, b));
     }
 
     switch (charCode) {
       case 0x2580: // upper half block
-        drawRect(0, 0, 1, 0.5);
-        return true;
+        addRect(0, 0, 1, 0.5);
+        break;
       case 0x2581: // lower one eighth block
-        drawRect(0, 0.875, 1, 1);
-        return true;
+        addRect(0, 0.875, 1, 1);
+        break;
       case 0x2582: // lower one quarter block
-        drawRect(0, 0.75, 1, 1);
-        return true;
+        addRect(0, 0.75, 1, 1);
+        break;
       case 0x2583: // lower three eighths block
-        drawRect(0, 0.625, 1, 1);
-        return true;
+        addRect(0, 0.625, 1, 1);
+        break;
       case 0x2584: // lower half block
-        drawRect(0, 0.5, 1, 1);
-        return true;
+        addRect(0, 0.5, 1, 1);
+        break;
       case 0x2585: // lower five eighths block
-        drawRect(0, 0.375, 1, 1);
-        return true;
+        addRect(0, 0.375, 1, 1);
+        break;
       case 0x2586: // lower three quarters block
-        drawRect(0, 0.25, 1, 1);
-        return true;
+        addRect(0, 0.25, 1, 1);
+        break;
       case 0x2587: // lower seven eighths block
-        drawRect(0, 0.125, 1, 1);
-        return true;
+        addRect(0, 0.125, 1, 1);
+        break;
       case 0x2588: // full block
-        drawRect(0, 0, 1, 1);
-        return true;
+        addRect(0, 0, 1, 1);
+        break;
       case 0x2589: // left seven eighths block
-        drawRect(0, 0, 0.875, 1);
-        return true;
+        addRect(0, 0, 0.875, 1);
+        break;
       case 0x258a: // left three quarters block
-        drawRect(0, 0, 0.75, 1);
-        return true;
+        addRect(0, 0, 0.75, 1);
+        break;
       case 0x258b: // left five eighths block
-        drawRect(0, 0, 0.625, 1);
-        return true;
+        addRect(0, 0, 0.625, 1);
+        break;
       case 0x258c: // left half block
-        drawRect(0, 0, 0.5, 1);
-        return true;
+        addRect(0, 0, 0.5, 1);
+        break;
       case 0x258d: // left three eighths block
-        drawRect(0, 0, 0.375, 1);
-        return true;
+        addRect(0, 0, 0.375, 1);
+        break;
       case 0x258e: // left one quarter block
-        drawRect(0, 0, 0.25, 1);
-        return true;
+        addRect(0, 0, 0.25, 1);
+        break;
       case 0x258f: // left one eighth block
-        drawRect(0, 0, 0.125, 1);
-        return true;
+        addRect(0, 0, 0.125, 1);
+        break;
       case 0x2590: // right half block
-        drawRect(0.5, 0, 1, 1);
-        return true;
+        addRect(0.5, 0, 1, 1);
+        break;
       case 0x2591: // light shade
       case 0x2592: // medium shade
       case 0x2593: // dark shade
@@ -535,53 +549,56 @@ class TerminalPainter {
             _ => 0.75,
           },
         );
-        drawRect(0, 0, 1, 1);
-        return true;
+        addRect(0, 0, 1, 1);
+        break;
       case 0x2594: // upper one eighth block
-        drawRect(0, 0, 1, 0.125);
-        return true;
+        addRect(0, 0, 1, 0.125);
+        break;
       case 0x2595: // right one eighth block
-        drawRect(0.875, 0, 1, 1);
-        return true;
+        addRect(0.875, 0, 1, 1);
+        break;
       case 0x2596: // quadrant lower left
-        drawRect(0, 0.5, 0.5, 1);
-        return true;
+        addRect(0, 0.5, 0.5, 1);
+        break;
       case 0x2597: // quadrant lower right
-        drawRect(0.5, 0.5, 1, 1);
-        return true;
+        addRect(0.5, 0.5, 1, 1);
+        break;
       case 0x2598: // quadrant upper left
-        drawRect(0, 0, 0.5, 0.5);
-        return true;
+        addRect(0, 0, 0.5, 0.5);
+        break;
       case 0x2599: // quadrant upper left and lower half
-        drawRect(0, 0, 0.5, 1);
-        drawRect(0.5, 0.5, 1, 1);
-        return true;
+        addRect(0, 0, 0.5, 1);
+        addRect(0.5, 0.5, 1, 1);
+        break;
       case 0x259a: // quadrant upper left and lower right
-        drawRect(0, 0, 0.5, 0.5);
-        drawRect(0.5, 0.5, 1, 1);
-        return true;
+        addRect(0, 0, 0.5, 0.5);
+        addRect(0.5, 0.5, 1, 1);
+        break;
       case 0x259b: // quadrant upper half and lower left
-        drawRect(0, 0, 1, 0.5);
-        drawRect(0, 0.5, 0.5, 1);
-        return true;
+        addRect(0, 0, 1, 0.5);
+        addRect(0, 0.5, 0.5, 1);
+        break;
       case 0x259c: // quadrant upper half and lower right
-        drawRect(0, 0, 1, 0.5);
-        drawRect(0.5, 0.5, 1, 1);
-        return true;
+        addRect(0, 0, 1, 0.5);
+        addRect(0.5, 0.5, 1, 1);
+        break;
       case 0x259d: // quadrant upper right
-        drawRect(0.5, 0, 1, 0.5);
-        return true;
+        addRect(0.5, 0, 1, 0.5);
+        break;
       case 0x259e: // quadrant upper right and lower left
-        drawRect(0.5, 0, 1, 0.5);
-        drawRect(0, 0.5, 0.5, 1);
-        return true;
+        addRect(0.5, 0, 1, 0.5);
+        addRect(0, 0.5, 0.5, 1);
+        break;
       case 0x259f: // quadrant upper right and lower half
-        drawRect(0.5, 0, 1, 1);
-        drawRect(0, 0.5, 0.5, 1);
-        return true;
+        addRect(0.5, 0, 1, 1);
+        addRect(0, 0.5, 0.5, 1);
+        break;
       default:
         return false;
     }
+
+    canvas.drawPath(path, paint);
+    return true;
   }
 
   bool _paintBoxDrawing(

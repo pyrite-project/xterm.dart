@@ -430,6 +430,13 @@ class EscapeParser {
   ///
   /// https://terminalguide.namepad.de/seq/csi_sm/
   void _csiHandleSgr() {
+    // With a private prefix this is XTMODKEYS (`CSI > 4 ; 1 m`), not SGR. Its
+    // arguments are not SGR codes, so reading them as such reset every
+    // attribute and then turned bold on.
+    if (_csi.prefix != null) {
+      return handler.unknownCSI(_csi.finalByte);
+    }
+
     final params = _parseSgrParams(_csi.rawParams.toString());
 
     if (params.isEmpty) {
@@ -452,7 +459,18 @@ class EscapeParser {
           handler.setCursorItalic();
           continue;
         case 4:
-          handler.setCursorUnderline();
+          // `4:0` is "no underline"; `4:1`..`4:5` pick a style, all of which
+          // are drawn as a plain underline here. Treating `4:0` as "on" left
+          // the attribute set for the rest of the session, because programs
+          // that use the sub-parameter form never send a bare `24` as well.
+          final underlineStyle = params[i].subParams;
+          if (underlineStyle != null &&
+              underlineStyle.isNotEmpty &&
+              underlineStyle.first == 0) {
+            handler.unsetCursorUnderline();
+          } else {
+            handler.setCursorUnderline();
+          }
           continue;
         case 5:
           handler.setCursorBlink();
@@ -471,6 +489,10 @@ class EscapeParser {
           handler.unsetCursorBold();
           continue;
         case 22:
+          // "Normal intensity" clears bold as well as faint. Clearing only
+          // faint left every cell after a bold run bold, because programs end
+          // bold with 22 and never send 21: the whole screen drifted bold.
+          handler.unsetCursorBold();
           handler.unsetCursorFaint();
           continue;
         case 23:
@@ -554,6 +576,17 @@ class EscapeParser {
           handler.resetBackground();
           continue;
 
+        case 58:
+          // Underline colour. The colour itself is not modelled yet, but the
+          // arguments must be consumed here: `58;5;n` used to be read as
+          // "blink + unknown", and `58;2;r;g;b` as "faint + colours", so a
+          // program that only meant to tint its underline changed the text.
+          i += _skipExtendedColor(params, i);
+          continue;
+        case 59:
+          // Default underline colour: nothing is stored, so nothing to reset.
+          continue;
+
         case 90:
           handler.setForegroundColor16(NamedColor.brightBlack);
           continue;
@@ -611,10 +644,16 @@ class EscapeParser {
     }
   }
 
+  /// Consumes the arguments of an extended colour (`38`/`48`/`58`) without
+  /// applying it, and returns how many parameters it occupied.
+  int _skipExtendedColor(List<_SgrParam> params, int offset) =>
+      _handleExtendedColor(params, offset, foreground: true, apply: false);
+
   int _handleExtendedColor(
     List<_SgrParam> params,
     int offset, {
     required bool foreground,
+    bool apply = true,
   }) {
     final subParams = params[offset].subParams;
     if (subParams != null) {
@@ -622,7 +661,7 @@ class EscapeParser {
       if (mode == 2) {
         // Both 38:2:R:G:B and 38:2:<color-space>:R:G:B are in use.
         final rgbOffset = subParams.length >= 5 ? 2 : 1;
-        if (subParams.length >= rgbOffset + 3) {
+        if (apply && subParams.length >= rgbOffset + 3) {
           _setRgbColor(
             subParams[rgbOffset],
             subParams[rgbOffset + 1],
@@ -630,7 +669,7 @@ class EscapeParser {
             foreground: foreground,
           );
         }
-      } else if (mode == 5 && subParams.length >= 2) {
+      } else if (mode == 5 && apply && subParams.length >= 2) {
         _setPaletteColor(subParams[1], foreground: foreground);
       }
       return 0;
@@ -641,7 +680,7 @@ class EscapeParser {
     if (mode == 2) {
       final available = params.length - offset - 1;
       final consumed = available.clamp(0, 4).toInt();
-      if (available >= 4) {
+      if (apply && available >= 4) {
         _setRgbColor(
           params[offset + 2].value,
           params[offset + 3].value,
@@ -654,7 +693,7 @@ class EscapeParser {
     if (mode == 5) {
       final available = params.length - offset - 1;
       final consumed = available.clamp(0, 2).toInt();
-      if (available >= 2) {
+      if (apply && available >= 2) {
         _setPaletteColor(params[offset + 2].value, foreground: foreground);
       }
       return consumed;
