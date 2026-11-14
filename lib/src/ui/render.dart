@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'package:xterm/src/core/buffer/cell_offset.dart';
+import 'package:xterm/src/core/buffer/line.dart';
 import 'package:xterm/src/core/buffer/range.dart';
 import 'package:xterm/src/core/buffer/segment.dart';
 import 'package:xterm/src/core/mouse/button.dart';
@@ -153,6 +154,17 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
 
   var _stickToBottom = true;
 
+  /// The line sitting at the top of the viewport, and the index it had at the
+  /// end of the last layout.
+  ///
+  /// An offset is a pixel count, but the buffer is a ring: once the scrollback
+  /// is full, every new line drops the oldest one and shifts every index down
+  /// by one. The offset then points at a later line and the text slides under a
+  /// viewport the user deliberately scrolled away from the bottom. The line
+  /// itself is the stable reference, so it is what the viewport is pinned to.
+  BufferLine? _pinnedLine;
+  int _pinnedLineIndex = 0;
+
   void _onScroll() {
     _stickToBottom = _scrollOffset >= _maxScrollExtent;
     markNeedsLayout();
@@ -210,11 +222,91 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
 
     _updateViewportSize();
 
+    _followPinnedLine();
+
     _updateScrollOffset();
 
     if (_stickToBottom) {
-      _offset.correctBy(_maxScrollExtent - _scrollOffset);
+      final delta = _maxScrollExtent - _scrollOffset;
+      // A zero correction still notifies the offset's listeners, and every one
+      // of them marks this object for layout again: an idle terminal would then
+      // rebuild itself forever.
+      if (delta != 0) {
+        _offset.correctBy(delta);
+      }
     }
+
+    _pinViewportTop();
+  }
+
+  /// Moves the viewport along with the scrollback when the buffer drops its
+  /// oldest lines.
+  ///
+  /// Only a viewport that is not stuck to the bottom is moved: a reader at the
+  /// end of the log follows the new output, a reader who scrolled up stays on
+  /// the lines they were reading.
+  void _followPinnedLine() {
+    final pinned = _pinnedLine;
+    if (pinned == null || _stickToBottom) {
+      return;
+    }
+
+    final lines = _terminal.buffer.lines;
+    if (lines.length == 0) {
+      _pinnedLine = null;
+      return;
+    }
+
+    if (_pinnedLineIndex < lines.length &&
+        identical(lines[_pinnedLineIndex], pinned)) {
+      return;
+    }
+
+    final index = _indexOfLine(pinned);
+    if (index < 0) {
+      // A reflow replaced the line objects, so there is no index to hold on to;
+      // the end of this layout pins to whatever line ends up on top.
+      return;
+    }
+
+    _offset.correctBy((index - _pinnedLineIndex) * lineHeight);
+    _pinnedLineIndex = index;
+  }
+
+  /// The current index of [line], or `-1` when it is no longer in the buffer.
+  ///
+  /// Lines are only ever dropped from the front, so the search walks backwards
+  /// from where the line was last seen and usually stops after a step or two.
+  int _indexOfLine(BufferLine line) {
+    final lines = _terminal.buffer.lines;
+    var index = _pinnedLineIndex;
+    if (index > lines.length - 1) {
+      index = lines.length - 1;
+    }
+    for (; index >= 0; index--) {
+      if (identical(lines[index], line)) {
+        return index;
+      }
+    }
+    return -1;
+  }
+
+  /// Remembers which line sits at the top of the viewport, so the next layout
+  /// can tell whether the buffer moved it.
+  void _pinViewportTop() {
+    final lines = _terminal.buffer.lines;
+    if (lines.length == 0 || lineHeight <= 0) {
+      _pinnedLine = null;
+      return;
+    }
+    var index = (_scrollOffset - _padding.top) ~/ lineHeight;
+    if (index < 0) {
+      index = 0;
+    } else if (index > lines.length - 1) {
+      index = lines.length - 1;
+    }
+    _pinnedLine = lines[index];
+    _pinnedLineIndex = index;
   }
 
   /// Total height of the terminal in pixels. Includes scrollback buffer.
